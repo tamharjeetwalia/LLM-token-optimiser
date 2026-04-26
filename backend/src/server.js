@@ -117,11 +117,19 @@ app.post(
     const model = decision.shouldUsePro ? MODELS.PRO : MODELS.FLASH;
     const messages = buildProcessingMessages(query, conversationHistory, availableTools, decision);
     const gemini = new GeminiWrapper();
-    const result = await gemini.callModel(model, messages, 1200, {
-      endpoint: "/api/process",
-      selectedTools: decision.selectedTools || [],
-      routingReason: decision.routingReason
-    });
+    const result = await gemini.callModel(
+      model,
+      messages,
+      1200,
+      {
+        endpoint: "/api/process",
+        selectedTools: decision.selectedTools || [],
+        routingReason: decision.routingReason
+      },
+      {
+        useGoogleSearch: Boolean(decision.useGoogleSearch)
+      }
+    );
 
     const savedMetrics = effectiveOptimizationOutput.tokenSavingsMetrics || {};
     const recorded = recordCall({
@@ -152,6 +160,8 @@ app.post(
           modelUsed: model,
           optimizationsUsed: useOptimizations,
           selectedTools: decision.selectedTools || [],
+          useGoogleSearch: Boolean(decision.useGoogleSearch),
+          taskType: decision.taskType || null,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           totalCostWithOptimization: result.totalCost,
@@ -169,6 +179,7 @@ app.post(
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       totalCost: result.totalCost,
+      groundingUsed: Boolean(result.groundingMetadata),
       metrics: recorded,
       optimizationOutput: effectiveOptimizationOutput
     });

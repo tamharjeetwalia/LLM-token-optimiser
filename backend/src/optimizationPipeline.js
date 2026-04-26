@@ -82,6 +82,8 @@ async function optimizationPipeline(input = {}, options = {}) {
   return {
     decision: {
       shouldUsePro: routerResult.shouldUsePro,
+      useGoogleSearch: routerResult.useGoogleSearch,
+      taskType: routerResult.taskType,
       routingReason: routerResult.reason,
       selectedTools: toolResult.selectedTools,
       compressedMessages: compressionResult.compressedMessages,

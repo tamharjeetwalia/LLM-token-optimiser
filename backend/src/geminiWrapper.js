@@ -25,9 +25,9 @@ class GeminiWrapper {
     this.enableLangfuse = options.enableLangfuse !== false;
   }
 
-  async callModel(modelName, messages, maxTokens = 1000, metadata = {}) {
+  async callModel(modelName, messages, maxTokens = 1000, metadata = {}, requestOptions = {}) {
     if (this.mock) {
-      return this.mockCallModel(modelName, messages, maxTokens, metadata);
+      return this.mockCallModel(modelName, messages, maxTokens, metadata, requestOptions);
     }
 
     const contents = toGeminiContents(messages);
@@ -37,16 +37,23 @@ class GeminiWrapper {
     }
 
     const tokenCount = await this.countTokens(modelName, messages);
+    const config = {
+      maxOutputTokens: maxTokens
+    };
+
+    if (requestOptions.useGoogleSearch) {
+      config.tools = [{ googleSearch: {} }];
+    }
+
     const response = await this.ai.models.generateContent({
       model: modelName,
       contents,
-      config: {
-        maxOutputTokens: maxTokens
-      }
+      config
     });
 
     const responseText = this.extractText(response);
     const usageMetadata = response.usageMetadata || {};
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata || response.groundingMetadata || null;
     const inputTokens =
       usageMetadata.inputTokens ||
       usageMetadata.promptTokenCount ||
@@ -62,7 +69,8 @@ class GeminiWrapper {
       response: responseText,
       inputTokens,
       outputTokens,
-      totalCost
+      totalCost,
+      groundingMetadata
     };
 
     if (this.enableLangfuse) {
@@ -79,6 +87,8 @@ class GeminiWrapper {
           metadata: {
             ...metadata,
             model: modelName,
+            useGoogleSearch: Boolean(requestOptions.useGoogleSearch),
+            groundingUsed: Boolean(groundingMetadata),
             inputTokens,
             outputTokens,
             totalCost
@@ -141,7 +151,7 @@ class GeminiWrapper {
     return parts.map((part) => part.text || "").join("").trim();
   }
 
-  async mockCallModel(modelName, messages, maxTokens = 1000, metadata = {}) {
+  async mockCallModel(modelName, messages, maxTokens = 1000, metadata = {}, requestOptions = {}) {
     const plainMessages = toPlainMessages(messages);
     const prompt = plainMessages.map((message) => message.content).join("\n").toLowerCase();
     const userQueryMatch = prompt.match(/user query:\s*(.*)/);
@@ -156,16 +166,39 @@ class GeminiWrapper {
       } else {
         response = '{"neededTools":[]}';
       }
-    } else if (prompt.includes("shouldusepro")) {
+    } else if (
+      prompt.includes("shouldusepro") ||
+      prompt.includes("route this query to either gemini 3 pro or gemini 2.5 flash") ||
+      prompt.includes('"usegooglesearch"')
+    ) {
       const shouldUsePro =
         userQuery.includes("latest") ||
         userQuery.includes("today") ||
         userQuery.includes("architecture") ||
         userQuery.includes("research") ||
-        userQuery.includes("multi-step");
+        userQuery.includes("multi-step") ||
+        userQuery.includes("code") ||
+        userQuery.includes("debug") ||
+        userQuery.includes("automation") ||
+        userQuery.includes("cloud") ||
+        userQuery.includes("devops") ||
+        userQuery.includes("kubernetes");
+      const useGoogleSearch =
+        shouldUsePro ||
+        userQuery.includes("latest") ||
+        userQuery.includes("today") ||
+        userQuery.includes("weather") ||
+        userQuery.includes("time") ||
+        userQuery.includes("current");
       response = JSON.stringify({
         shouldUsePro,
-        reason: shouldUsePro ? "Requires current data or deeper reasoning." : "Simple general knowledge question."
+        useGoogleSearch,
+        taskType: shouldUsePro ? "technical" : useGoogleSearch ? "current-data" : "general",
+        reason: shouldUsePro
+          ? "Technical work should use Pro with Google Search."
+          : useGoogleSearch
+            ? "Current-data request should use Flash with Google Search."
+            : "Simple general knowledge question."
       });
     } else if (prompt.includes("summarize the key context")) {
       response =
@@ -185,6 +218,7 @@ class GeminiWrapper {
       inputTokens,
       outputTokens,
       totalCost,
+      groundingMetadata: requestOptions.useGoogleSearch ? { mock: true } : null,
       mock: true,
       metadata
     };

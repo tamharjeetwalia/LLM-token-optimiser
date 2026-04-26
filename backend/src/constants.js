@@ -4,7 +4,7 @@ loadEnv();
 
 const MODELS = {
   FLASH: process.env.GEMINI_FLASH_MODEL || "gemini-2.5-flash",
-  PRO: process.env.GEMINI_PRO_MODEL || "gemini-2.5-pro"
+  PRO: process.env.GEMINI_PRO_MODEL || "gemini-3-pro-preview"
 };
 
 const PRICING_PER_MILLION_TOKENS = {

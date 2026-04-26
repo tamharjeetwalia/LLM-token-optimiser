@@ -40,8 +40,12 @@ async function testContextCompressor() {
 async function testQueryRouter() {
   const simple = await queryRouter("What is the capital of France?");
   const complex = await queryRouter("What are the latest AI papers from today?");
+  const coding = await queryRouter("Debug this Kubernetes deployment automation script.");
   assert(simple.shouldUsePro === false, "simple query should route to Flash");
-  assert(complex.shouldUsePro === true, "current-data query should route to Pro");
+  assert(complex.shouldUsePro === false, "current-data query should route to Flash");
+  assert(complex.useGoogleSearch === true, "current-data query should use Google Search");
+  assert(coding.shouldUsePro === true, "coding and DevOps query should route to Pro");
+  assert(coding.useGoogleSearch === true, "coding and DevOps query should use Google Search");
   console.log("PASS Query router test");
 }
 

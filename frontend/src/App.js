@@ -63,7 +63,7 @@ function buildMetrics(processResult, optimizationOutput) {
   const costAfterOptimization = money(processResult.totalCost) + money(costs.totalFlashCost);
   const costBeforeOptimization =
     costAfterOptimization +
-    money(tokensSaved * (processResult.model === "gemini-3-pro" ? 0.0000015 : 0.000000075));
+    money(tokensSaved * (String(processResult.model || "").includes("pro") ? 0.0000015 : 0.000000075));
 
   return {
     tokensBeforeOptimization,
