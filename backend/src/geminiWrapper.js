@@ -88,16 +88,17 @@ class GeminiWrapper {
             maxTokens
           },
           output: {
-            response: responseText
+            response: result.response
           },
           metadata: {
             ...metadata,
             model: modelName,
             useGoogleSearch: Boolean(requestOptions.useGoogleSearch),
             groundingUsed: Boolean(groundingMetadata),
-            inputTokens,
-            outputTokens,
-            totalCost
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            totalCost: result.totalCost,
+            finishReason: result.finishReason
           }
         });
       } catch (error) {
