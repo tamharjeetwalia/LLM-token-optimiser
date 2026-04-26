@@ -274,13 +274,75 @@ textarea {
   margin-top: 8px;
 }
 
+.message-attachments,
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.attachment-strip {
+  background: #f9fbfc;
+  border-top: 1px solid var(--line);
+  padding: 10px 14px;
+}
+
+.attachment-strip-header {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.attachment-pill {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+}
+
+.attachment-pill.active {
+  background: #eef7f3;
+  border-color: #cfe5da;
+  color: var(--ink);
+}
+
+.attachment-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.attachment-remove {
+  align-items: center;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  min-height: auto;
+  padding: 0;
+}
+
 .composer {
   align-items: stretch;
   border-top: 1px solid var(--line);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) 48px;
+  grid-template-columns: 44px minmax(0, 1fr) 48px;
   padding: 14px;
+}
+
+.secondary-button {
+  background: var(--panel-muted);
+  border-radius: 8px;
+  color: var(--blue);
+  min-height: 48px;
 }
 
 .composer textarea {
@@ -540,6 +602,6 @@ textarea {
   }
 
   .composer {
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: 40px minmax(0, 1fr) 44px;
   }
 }

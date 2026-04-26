@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Loader2, Send, UserRound, Wrench } from "lucide-react";
+import { Bot, Check, Loader2, Paperclip, Send, UserRound, Wrench, X } from "lucide-react";
 
 function labelForToggle(name) {
   const labels = {
@@ -48,13 +48,18 @@ function formatTokenMeta(message) {
 function ChatPanel({
   messages,
   isLoading,
+  isUploading,
   onSendMessage,
+  onUploadFiles,
+  onRemoveFile,
   optimizationToggle,
   onToggleOptimization,
-  availableTools
+  availableTools,
+  uploadedFiles
 }) {
   const [draft, setDraft] = useState("");
   const messageEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (typeof messageEndRef.current?.scrollIntoView === "function") {
@@ -109,6 +114,16 @@ function ChatPanel({
             </div>
             <div className="message-bubble">
               <p>{message.content}</p>
+              {Array.isArray(message.attachments) && message.attachments.length ? (
+                <div className="message-attachments">
+                  {message.attachments.map((attachment) => (
+                    <span className="attachment-pill" key={`${message.role}-${index}-${attachment.id || attachment.name}`}>
+                      <Paperclip size={12} />
+                      {attachment.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {formatTokenMeta(message).length ? (
                 <div className="message-meta">
                   {formatTokenMeta(message).map((item) => (
@@ -136,7 +151,52 @@ function ChatPanel({
         <div ref={messageEndRef} />
       </div>
 
+      <div className="attachment-strip">
+        <div className="attachment-strip-header">
+          <span>Session files</span>
+          {isUploading ? <Loader2 className="spin" size={14} /> : null}
+        </div>
+        <div className="attachment-list">
+          {uploadedFiles.length ? (
+            uploadedFiles.map((file) => (
+              <span className="attachment-pill active" key={file.id}>
+                <Paperclip size={12} />
+                {file.name}
+                <button
+                  aria-label={`Remove ${file.name}`}
+                  className="attachment-remove"
+                  onClick={() => onRemoveFile(file.id)}
+                  type="button"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))
+          ) : (
+            <span className="attachment-empty">No files uploaded in this session</span>
+          )}
+        </div>
+      </div>
+
       <form className="composer" onSubmit={submit}>
+        <input
+          hidden
+          multiple
+          onChange={(event) => {
+            onUploadFiles(event.target.files);
+            event.target.value = "";
+          }}
+          ref={fileInputRef}
+          type="file"
+        />
+        <button
+          className="secondary-button"
+          onClick={() => fileInputRef.current?.click()}
+          title="Upload files"
+          type="button"
+        >
+          {isUploading ? <Loader2 className="spin" size={18} /> : <Paperclip size={18} />}
+        </button>
         <textarea
           aria-label="Message"
           onChange={(event) => setDraft(event.target.value)}

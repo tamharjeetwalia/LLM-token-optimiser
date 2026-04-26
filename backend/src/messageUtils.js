@@ -1,3 +1,5 @@
+const { createPartFromText, createPartFromUri } = require("@google/genai");
+
 function normalizeRole(role) {
   if (role === "assistant" || role === "model") {
     return "model";
@@ -12,11 +14,26 @@ function toGeminiContents(messages) {
   }
 
   return messages
-    .filter((message) => message && typeof message.content === "string")
-    .map((message) => ({
-      role: normalizeRole(message.role),
-      parts: [{ text: message.content }]
-    }));
+    .filter((message) => message && (typeof message.content === "string" || Array.isArray(message.attachments)))
+    .map((message) => {
+      const parts = [];
+
+      if (typeof message.content === "string" && message.content.trim()) {
+        parts.push(createPartFromText(message.content));
+      }
+
+      for (const attachment of message.attachments || []) {
+        if (attachment?.uri && attachment?.mimeType) {
+          parts.push(createPartFromUri(attachment.uri, attachment.mimeType));
+        }
+      }
+
+      return {
+        role: normalizeRole(message.role),
+        parts
+      };
+    })
+    .filter((message) => message.parts.length > 0);
 }
 
 function toPlainMessages(messages) {
@@ -28,7 +45,15 @@ function toPlainMessages(messages) {
     .filter((message) => message && typeof message.content === "string")
     .map((message) => ({
       role: message.role === "assistant" || message.role === "model" ? "assistant" : "user",
-      content: message.content
+      content: message.content,
+      attachments: Array.isArray(message.attachments)
+        ? message.attachments.map((attachment) => ({
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            uri: attachment.uri
+          }))
+        : []
     }));
 }
 

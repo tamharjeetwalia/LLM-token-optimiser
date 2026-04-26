@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Gauge, RefreshCw } from "lucide-react";
 import "./App.css";
 
@@ -47,6 +47,42 @@ const initialToggles = {
   queryRouting: true
 };
 
+const STORAGE_KEYS = {
+  sessionId: "token-optimizer-session-id",
+  messages: "token-optimizer-messages",
+  metricsHistory: "token-optimizer-metrics-history",
+  currentMetrics: "token-optimizer-current-metrics",
+  uploadedFiles: "token-optimizer-uploaded-files"
+};
+
+function readSessionValue(key, fallbackValue) {
+  try {
+    const stored = window.sessionStorage.getItem(key);
+    return stored ? JSON.parse(stored) : fallbackValue;
+  } catch (error) {
+    return fallbackValue;
+  }
+}
+
+function writeSessionValue(key, value) {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn("Could not persist session value", key, error);
+  }
+}
+
+function getSessionId() {
+  const existing = window.sessionStorage.getItem(STORAGE_KEYS.sessionId);
+  if (existing) {
+    return existing;
+  }
+
+  const created = `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  window.sessionStorage.setItem(STORAGE_KEYS.sessionId, created);
+  return created;
+}
+
 function money(value) {
   return Number(value || 0);
 }
@@ -84,13 +120,61 @@ function buildMetrics(processResult, optimizationOutput) {
 }
 
 function App() {
-  const [messages, setMessages] = useState(initialMessages);
-  const [currentMetrics, setCurrentMetrics] = useState(null);
-  const [metricsHistory, setMetricsHistory] = useState([]);
+  const [sessionId] = useState(() => getSessionId());
+  const [messages, setMessages] = useState(() => readSessionValue(STORAGE_KEYS.messages, initialMessages));
+  const [currentMetrics, setCurrentMetrics] = useState(() =>
+    readSessionValue(STORAGE_KEYS.currentMetrics, null)
+  );
+  const [metricsHistory, setMetricsHistory] = useState(() =>
+    readSessionValue(STORAGE_KEYS.metricsHistory, [])
+  );
   const [optimizationToggle, setOptimizationToggle] = useState(initialToggles);
   const [availableTools] = useState(defaultTools);
+  const [uploadedFiles, setUploadedFiles] = useState(() =>
+    readSessionValue(STORAGE_KEYS.uploadedFiles, [])
+  );
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    writeSessionValue(STORAGE_KEYS.messages, messages);
+  }, [messages]);
+
+  useEffect(() => {
+    writeSessionValue(STORAGE_KEYS.metricsHistory, metricsHistory);
+  }, [metricsHistory]);
+
+  useEffect(() => {
+    writeSessionValue(STORAGE_KEYS.currentMetrics, currentMetrics);
+  }, [currentMetrics]);
+
+  useEffect(() => {
+    writeSessionValue(STORAGE_KEYS.uploadedFiles, uploadedFiles);
+  }, [uploadedFiles]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncSessionFiles() {
+      try {
+        const files = await backend.getSessionFiles(sessionId);
+        if (!cancelled) {
+          setUploadedFiles(files);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setUploadedFiles([]);
+        }
+      }
+    }
+
+    syncSessionFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   const conversationHistory = useMemo(
     () =>
@@ -99,6 +183,7 @@ function App() {
         .map(({ role, content }) => ({ role, content })),
     [messages]
   );
+  const attachmentIds = uploadedFiles.map((file) => file.id);
 
   async function handleSendMessage(query) {
     const userMessage = {
@@ -107,7 +192,12 @@ function App() {
       tokens: null,
       inputTokens: null,
       outputTokens: null,
-      model: null
+      model: null,
+      attachments: uploadedFiles.map((file) => ({
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType
+      }))
     };
 
     setMessages((current) => [...current, userMessage]);
@@ -122,14 +212,18 @@ function App() {
         query,
         historyBeforeQuery,
         availableTools,
-        optimizationToggle
+        optimizationToggle,
+        sessionId,
+        attachmentIds
       );
       const processResult = await backend.processQuery(
         query,
         historyBeforeQuery,
         availableTools,
         optimizationOutput,
-        optimizationToggle
+        optimizationToggle,
+        sessionId,
+        attachmentIds
       );
       const metrics = buildMetrics(processResult, optimizationOutput);
 
@@ -162,6 +256,36 @@ function App() {
       ]);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleUploadFiles(fileList) {
+    const files = Array.from(fileList || []);
+
+    if (!files.length) {
+      return;
+    }
+
+    setError("");
+    setIsUploading(true);
+
+    try {
+      const uploaded = await backend.uploadFiles(sessionId, files);
+      setUploadedFiles((current) => [...current, ...uploaded]);
+    } catch (caughtError) {
+      setError(caughtError?.message || "Could not upload files");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  async function handleRemoveFile(fileId) {
+    setError("");
+    try {
+      const remaining = await backend.removeFile(sessionId, fileId);
+      setUploadedFiles(remaining);
+    } catch (caughtError) {
+      setError(caughtError?.message || "Could not remove file");
     }
   }
 
@@ -229,10 +353,14 @@ function App() {
         <ChatPanel
           messages={messages}
           isLoading={isLoading}
+          isUploading={isUploading}
           onSendMessage={handleSendMessage}
+          onUploadFiles={handleUploadFiles}
+          onRemoveFile={handleRemoveFile}
           optimizationToggle={optimizationToggle}
           onToggleOptimization={handleToggleOptimization}
           availableTools={availableTools}
+          uploadedFiles={uploadedFiles}
         />
         <aside className="insights-column">
           <MetricsPanel currentMetrics={currentMetrics} />

@@ -26,11 +26,20 @@ function normalizeError(error) {
   return new Error(error.message || "Request failed");
 }
 
-export async function optimizeQuery(query, conversationHistory, availableTools, optimizationToggle) {
+export async function optimizeQuery(
+  query,
+  conversationHistory,
+  availableTools,
+  optimizationToggle,
+  sessionId,
+  attachmentIds
+) {
   try {
     console.log("POST /api/optimize", { query, conversationHistory, availableTools, optimizationToggle });
     const response = await api.post("/api/optimize", {
       query,
+      sessionId,
+      attachmentIds,
       conversationHistory,
       availableTools,
       useOptimizations: optimizationToggle
@@ -47,12 +56,16 @@ export async function processQuery(
   conversationHistory,
   availableTools,
   optimizationOutput,
-  optimizationToggle
+  optimizationToggle,
+  sessionId,
+  attachmentIds
 ) {
   try {
     console.log("POST /api/process", { query, optimizationOutput });
     const response = await api.post("/api/process", {
       query,
+      sessionId,
+      attachmentIds,
       conversationHistory,
       availableTools,
       optimizationOutput,
@@ -71,6 +84,46 @@ export async function getMetrics() {
     const response = await api.get("/api/metrics");
     console.log("/api/metrics response", response.data);
     return response.data;
+  } catch (error) {
+    throw normalizeError(error);
+  }
+}
+
+export async function uploadFiles(sessionId, files) {
+  try {
+    const formData = new FormData();
+    formData.append("sessionId", sessionId);
+
+    for (const file of files) {
+      formData.append("files", file);
+    }
+
+    console.log("POST /api/files", { sessionId, fileCount: files.length });
+    const response = await api.post("/api/files", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    });
+    console.log("/api/files response", response.data);
+    return response.data.files || [];
+  } catch (error) {
+    throw normalizeError(error);
+  }
+}
+
+export async function removeFile(sessionId, fileId) {
+  try {
+    const response = await api.delete(`/api/files/${sessionId}/${fileId}`);
+    return response.data.files || [];
+  } catch (error) {
+    throw normalizeError(error);
+  }
+}
+
+export async function getSessionFiles(sessionId) {
+  try {
+    const response = await api.get(`/api/files/${sessionId}`);
+    return response.data.files || [];
   } catch (error) {
     throw normalizeError(error);
   }

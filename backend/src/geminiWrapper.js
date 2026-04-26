@@ -30,47 +30,53 @@ class GeminiWrapper {
       return this.mockCallModel(modelName, messages, maxTokens, metadata, requestOptions);
     }
 
-    const contents = toGeminiContents(messages);
+    const maxPasses = requestOptions.allowContinuation === false ? 1 : 3;
+    let workingMessages = messages;
+    let fullResponse = "";
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCost = 0;
+    let groundingMetadata = null;
+    let finishReason = null;
 
-    if (contents.length === 0) {
-      throw new Error("Gemini call requires at least one message with content.");
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      const singlePass = await this.generateOnce(
+        modelName,
+        workingMessages,
+        maxTokens,
+        requestOptions
+      );
+
+      fullResponse = fullResponse
+        ? `${fullResponse.trimEnd()}\n${singlePass.response.trimStart()}`
+        : singlePass.response;
+      totalInputTokens += singlePass.inputTokens;
+      totalOutputTokens += singlePass.outputTokens;
+      totalCost += singlePass.totalCost;
+      groundingMetadata = groundingMetadata || singlePass.groundingMetadata;
+      finishReason = singlePass.finishReason;
+
+      if (finishReason !== "MAX_TOKENS") {
+        break;
+      }
+
+      workingMessages = [
+        ...toPlainMessages(messages),
+        { role: "assistant", content: fullResponse },
+        {
+          role: "user",
+          content: "Continue exactly from where you stopped. Do not repeat earlier text. Finish the answer completely."
+        }
+      ];
     }
-
-    const tokenCount = await this.countTokens(modelName, messages);
-    const config = {
-      maxOutputTokens: maxTokens
-    };
-
-    if (requestOptions.useGoogleSearch) {
-      config.tools = [{ googleSearch: {} }];
-    }
-
-    const response = await this.ai.models.generateContent({
-      model: modelName,
-      contents,
-      config
-    });
-
-    const responseText = this.extractText(response);
-    const usageMetadata = response.usageMetadata || {};
-    const groundingMetadata = response.candidates?.[0]?.groundingMetadata || response.groundingMetadata || null;
-    const inputTokens =
-      usageMetadata.inputTokens ||
-      usageMetadata.promptTokenCount ||
-      tokenCount ||
-      0;
-    const outputTokens =
-      usageMetadata.outputTokens ||
-      usageMetadata.candidatesTokenCount ||
-      Math.max(0, (usageMetadata.totalTokenCount || 0) - inputTokens);
-    const totalCost = this.calculateCost(modelName, inputTokens, outputTokens);
 
     const result = {
-      response: responseText,
-      inputTokens,
-      outputTokens,
+      response: fullResponse,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
       totalCost,
-      groundingMetadata
+      groundingMetadata,
+      finishReason
     };
 
     if (this.enableLangfuse) {
@@ -100,6 +106,53 @@ class GeminiWrapper {
     }
 
     return result;
+  }
+
+  async generateOnce(modelName, messages, maxTokens, requestOptions = {}) {
+    const contents = toGeminiContents(messages);
+
+    if (contents.length === 0) {
+      throw new Error("Gemini call requires at least one message with content.");
+    }
+
+    const tokenCount = await this.countTokens(modelName, messages);
+    const config = {
+      maxOutputTokens: maxTokens
+    };
+
+    if (requestOptions.useGoogleSearch) {
+      config.tools = [{ googleSearch: {} }];
+    }
+
+    const response = await this.ai.models.generateContent({
+      model: modelName,
+      contents,
+      config
+    });
+
+    const responseText = this.extractText(response);
+    const usageMetadata = response.usageMetadata || {};
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata || response.groundingMetadata || null;
+    const finishReason = response.candidates?.[0]?.finishReason || null;
+    const inputTokens =
+      usageMetadata.inputTokens ||
+      usageMetadata.promptTokenCount ||
+      tokenCount ||
+      0;
+    const outputTokens =
+      usageMetadata.outputTokens ||
+      usageMetadata.candidatesTokenCount ||
+      Math.max(0, (usageMetadata.totalTokenCount || 0) - inputTokens);
+    const totalCost = this.calculateCost(modelName, inputTokens, outputTokens);
+
+    return {
+      response: responseText,
+      inputTokens,
+      outputTokens,
+      totalCost,
+      groundingMetadata,
+      finishReason
+    };
   }
 
   async countTokens(modelName, messages) {
@@ -149,6 +202,32 @@ class GeminiWrapper {
 
     const parts = response.candidates?.[0]?.content?.parts || [];
     return parts.map((part) => part.text || "").join("").trim();
+  }
+
+  async uploadFile(filePath, mimeType, displayName) {
+    if (this.mock) {
+      return {
+        name: `mock-files/${Date.now()}`,
+        uri: `mock:///${displayName}`,
+        mimeType
+      };
+    }
+
+    return this.ai.files.upload({
+      file: filePath,
+      config: {
+        mimeType,
+        displayName
+      }
+    });
+  }
+
+  async deleteFile(name) {
+    if (this.mock || !name) {
+      return;
+    }
+
+    await this.ai.files.delete({ name });
   }
 
   async mockCallModel(modelName, messages, maxTokens = 1000, metadata = {}, requestOptions = {}) {

@@ -1,5 +1,9 @@
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const cors = require("cors");
 const express = require("express");
+const multer = require("multer");
 const { loadEnv } = require("./env");
 
 loadEnv();
@@ -9,10 +13,22 @@ const GeminiWrapper = require("./geminiWrapper");
 const { getRecentCalls, getSummary, recordCall } = require("./metricsStore");
 const optimizationPipeline = require("./optimizationPipeline");
 const { latestUserMessage, toPlainMessages } = require("./messageUtils");
+const { addFiles, getFiles, listFiles, removeFile } = require("./sessionStore");
 const { trace, verifyLangfuseConnection } = require("./langfuseClient");
 
 const app = express();
 const port = process.env.PORT || 3001;
+const uploadDirectory = path.join(os.tmpdir(), "token-optimizer-uploads");
+
+fs.mkdirSync(uploadDirectory, { recursive: true });
+
+const upload = multer({
+  dest: uploadDirectory,
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+    files: 10
+  }
+});
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
@@ -40,7 +56,17 @@ function selectedToolDescriptions(availableTools = [], selectedToolNames = []) {
     .join("\n");
 }
 
-function buildProcessingMessages(query, conversationHistory, availableTools, decision) {
+function summarizeAttachments(attachments = []) {
+  if (!attachments.length) {
+    return "";
+  }
+
+  return attachments
+    .map((attachment) => `${attachment.name} (${attachment.mimeType})`)
+    .join(", ");
+}
+
+function buildProcessingMessages(query, conversationHistory, availableTools, decision, attachments = []) {
   const compressedMessages = Array.isArray(decision?.compressedMessages)
     ? toPlainMessages(decision.compressedMessages)
     : toPlainMessages(conversationHistory);
@@ -59,16 +85,87 @@ function buildProcessingMessages(query, conversationHistory, availableTools, dec
   }
 
   messages.push(...compressedMessages);
-  messages.push(...latestUserMessage(query));
+  messages.push({
+    role: "user",
+    content: attachments.length
+      ? `${query}\n\nAttached files available for this request: ${summarizeAttachments(attachments)}`
+      : query,
+    attachments
+  });
 
   return messages;
 }
+
+app.post(
+  "/api/files",
+  upload.array("files", 10),
+  asyncHandler(async (req, res) => {
+    const sessionId = req.body.sessionId || "default-session";
+    const files = Array.isArray(req.files) ? req.files : [];
+
+    if (!files.length) {
+      return res.status(400).json({ error: "At least one file is required" });
+    }
+
+    const gemini = new GeminiWrapper();
+    const uploaded = [];
+
+    try {
+      for (const file of files) {
+        const geminiFile = await gemini.uploadFile(
+          file.path,
+          file.mimetype || "application/octet-stream",
+          file.originalname
+        );
+        uploaded.push({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          sessionId,
+          name: file.originalname,
+          mimeType: geminiFile.mimeType || file.mimetype || "application/octet-stream",
+          uri: geminiFile.uri,
+          remoteName: geminiFile.name,
+          size: file.size
+        });
+      }
+
+      addFiles(sessionId, uploaded);
+      res.json({ files: uploaded });
+    } finally {
+      for (const file of files) {
+        if (file?.path) {
+          fs.promises.unlink(file.path).catch(() => {});
+        }
+      }
+    }
+  })
+);
+
+app.get(
+  "/api/files/:sessionId",
+  asyncHandler(async (req, res) => {
+    res.json({ files: listFiles(req.params.sessionId) });
+  })
+);
+
+app.delete(
+  "/api/files/:sessionId/:fileId",
+  asyncHandler(async (req, res) => {
+    const { removedFile, files } = removeFile(req.params.sessionId, req.params.fileId);
+    if (removedFile?.remoteName) {
+      const gemini = new GeminiWrapper();
+      await gemini.deleteFile(removedFile.remoteName).catch(() => {});
+    }
+    res.json({ files });
+  })
+);
 
 app.post(
   "/api/optimize",
   asyncHandler(async (req, res) => {
     const {
       query,
+      sessionId = "default-session",
+      attachmentIds = [],
       conversationHistory = [],
       availableTools = [],
       useOptimizations = {}
@@ -78,8 +175,10 @@ app.post(
       return res.status(400).json({ error: "query is required" });
     }
 
+    const attachments = getFiles(sessionId, attachmentIds);
+    const attachmentSummary = summarizeAttachments(attachments);
     const output = await optimizationPipeline({
-      userQuery: query,
+      userQuery: attachmentSummary ? `${query}\nAttached files: ${attachmentSummary}` : query,
       conversationHistory,
       availableTools,
       useOptimizations
@@ -94,6 +193,8 @@ app.post(
   asyncHandler(async (req, res) => {
     const {
       query,
+      sessionId = "default-session",
+      attachmentIds = [],
       conversationHistory = [],
       availableTools = [],
       optimizationOutput,
@@ -104,10 +205,12 @@ app.post(
       return res.status(400).json({ error: "query is required" });
     }
 
+    const attachments = getFiles(sessionId, attachmentIds);
+    const attachmentSummary = summarizeAttachments(attachments);
     const effectiveOptimizationOutput =
       optimizationOutput ||
       (await optimizationPipeline({
-        userQuery: query,
+        userQuery: attachmentSummary ? `${query}\nAttached files: ${attachmentSummary}` : query,
         conversationHistory,
         availableTools,
         useOptimizations
@@ -115,19 +218,28 @@ app.post(
 
     const decision = effectiveOptimizationOutput.decision || {};
     const model = decision.shouldUsePro ? MODELS.PRO : MODELS.FLASH;
-    const messages = buildProcessingMessages(query, conversationHistory, availableTools, decision);
+    const messages = buildProcessingMessages(
+      query,
+      conversationHistory,
+      availableTools,
+      decision,
+      attachments
+    );
     const gemini = new GeminiWrapper();
     const result = await gemini.callModel(
       model,
       messages,
-      1200,
+      decision.shouldUsePro ? 2800 : 1800,
       {
         endpoint: "/api/process",
         selectedTools: decision.selectedTools || [],
-        routingReason: decision.routingReason
+        routingReason: decision.routingReason,
+        sessionId,
+        attachmentCount: attachments.length
       },
       {
-        useGoogleSearch: Boolean(decision.useGoogleSearch)
+        useGoogleSearch: Boolean(decision.useGoogleSearch),
+        allowContinuation: true
       }
     );
 
@@ -162,6 +274,7 @@ app.post(
           selectedTools: decision.selectedTools || [],
           useGoogleSearch: Boolean(decision.useGoogleSearch),
           taskType: decision.taskType || null,
+          attachmentCount: attachments.length,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           totalCostWithOptimization: result.totalCost,
@@ -180,6 +293,12 @@ app.post(
       outputTokens: result.outputTokens,
       totalCost: result.totalCost,
       groundingUsed: Boolean(result.groundingMetadata),
+      finishReason: result.finishReason,
+      attachments: attachments.map((attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        mimeType: attachment.mimeType
+      })),
       metrics: recorded,
       optimizationOutput: effectiveOptimizationOutput
     });
