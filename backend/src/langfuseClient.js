@@ -3,6 +3,11 @@ const { isPlaceholder, loadEnv } = require("./env");
 
 loadEnv();
 
+// Langfuse provides observability for our optimization experiment:
+// - traces per request (input/output, model, token usage, cost)
+// - routing/compression/search metadata for analysis/debugging
+//
+// Logging is best-effort: Gemini calls should still succeed even if Langfuse fails.
 function isConfigured(value, placeholder) {
   return Boolean(value) && value !== placeholder && !isPlaceholder(value);
 }

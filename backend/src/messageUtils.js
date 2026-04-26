@@ -1,5 +1,9 @@
 const { createPartFromText, createPartFromUri } = require("@google/genai");
 
+// Message conversion utilities:
+// - Frontend + internal code uses `{ role, content, attachments }`
+// - Gemini SDK expects `contents: [{ role, parts: [...] }]`
+// Attachments are stored as URIs (Gemini Files API) and are attached as URI parts.
 function normalizeRole(role) {
   if (role === "assistant" || role === "model") {
     return "model";
@@ -22,6 +26,7 @@ function toGeminiContents(messages) {
         parts.push(createPartFromText(message.content));
       }
 
+      // Attach file URIs so Gemini can read images/PDFs/text files.
       for (const attachment of message.attachments || []) {
         if (attachment?.uri && attachment?.mimeType) {
           parts.push(createPartFromUri(attachment.uri, attachment.mimeType));

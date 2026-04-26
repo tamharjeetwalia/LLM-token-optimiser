@@ -55,6 +55,9 @@ const STORAGE_KEYS = {
   uploadedFiles: "token-optimizer-uploaded-files"
 };
 
+// Session persistence:
+// We use sessionStorage so the chat/history survives refreshes in the same tab,
+// but doesn't become a permanent "account-level" history.
 function readSessionValue(key, fallbackValue) {
   try {
     const stored = window.sessionStorage.getItem(key);
@@ -208,6 +211,9 @@ function App() {
       const historyBeforeQuery = conversationHistory.filter(
         (message) => message.content !== initialMessages[0].content
       );
+      // Two-step flow:
+      // 1) /optimize decides model, compression, tools, and search grounding
+      // 2) /process runs the chosen model with compressed context and attachments
       const optimizationOutput = await backend.optimizeQuery(
         query,
         historyBeforeQuery,

@@ -2,6 +2,13 @@ const { MODELS, PRO_QUERY_ROUTING_AVOIDED_TOKENS } = require("../constants");
 const GeminiWrapper = require("../geminiWrapper");
 const { extractJsonObject } = require("../messageUtils");
 
+// Router policy:
+// - Technical work (coding/devops/cloud/automation) => Pro + Google Search
+// - Current-data/lookups => Flash + Google Search
+// - Everything else => Flash (no search unless router decides)
+//
+// We ask Flash for a JSON decision, then apply deterministic guardrails so
+// the behavior is stable even if the model output is noisy.
 const PRO_KEYWORDS = [
   "code",
   "coding",
@@ -93,6 +100,7 @@ function fallbackRoute(userQuery) {
 
 async function queryRouter(userQuery, complexityThreshold = 0.6, options = {}) {
   const gemini = options.gemini || new GeminiWrapper();
+  // We use Flash for routing because it’s cheap and “good enough” to categorize intent.
   const prompt = [
     `User query: ${userQuery}`,
     "",

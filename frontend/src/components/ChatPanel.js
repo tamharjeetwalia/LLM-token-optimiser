@@ -151,6 +151,7 @@ function ChatPanel({
         <div ref={messageEndRef} />
       </div>
 
+      {/* Session attachments: uploaded once, then automatically included with prompts. */}
       <div className="attachment-strip">
         <div className="attachment-strip-header">
           <span>Session files</span>
@@ -182,6 +183,7 @@ function ChatPanel({
         <input
           hidden
           multiple
+          // Upload is async; we clear the input value so the same filename can be re-selected.
           onChange={(event) => {
             onUploadFiles(event.target.files);
             event.target.value = "";

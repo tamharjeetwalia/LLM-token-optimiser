@@ -2,6 +2,10 @@ const { MODELS, PRO_TOOL_TOKEN_ESTIMATE } = require("../constants");
 const GeminiWrapper = require("../geminiWrapper");
 const { extractJsonObject } = require("../messageUtils");
 
+// Tool selection:
+// We ask Flash to choose which "tools" are relevant for a query.
+// In this prototype we do not execute tools; we only inject the selected tool
+// descriptions into the prompt to focus the model's response.
 function formatTools(availableTools = []) {
   return availableTools
     .map((tool) => {

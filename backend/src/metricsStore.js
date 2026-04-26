@@ -1,5 +1,7 @@
 const calls = [];
 
+// Minimal in-memory metrics store for the dashboard.
+// This is *not* intended as durable analytics; it resets on server restart.
 function recordCall(call) {
   const timestamp = new Date().toISOString();
   const entry = {

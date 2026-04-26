@@ -25,6 +25,11 @@ class GeminiWrapper {
     this.enableLangfuse = options.enableLangfuse !== false;
   }
 
+  // Main Gemini entrypoint used by the server + optimizations.
+  // Supports:
+  // - token counting + pricing
+  // - optional Google Search grounding via tools
+  // - auto-continuation when the model hits maxOutputTokens
   async callModel(modelName, messages, maxTokens = 1000, metadata = {}, requestOptions = {}) {
     if (this.mock) {
       return this.mockCallModel(modelName, messages, maxTokens, metadata, requestOptions);
@@ -56,6 +61,8 @@ class GeminiWrapper {
       groundingMetadata = groundingMetadata || singlePass.groundingMetadata;
       finishReason = singlePass.finishReason;
 
+      // Gemini uses finishReason to indicate whether it stopped naturally.
+      // If it stopped due to output limit, request continuation.
       if (finishReason !== "MAX_TOKENS") {
         break;
       }
@@ -109,6 +116,7 @@ class GeminiWrapper {
     return result;
   }
 
+  // Single generateContent call. We keep this separate so continuation can reuse it.
   async generateOnce(modelName, messages, maxTokens, requestOptions = {}) {
     const contents = toGeminiContents(messages);
 
@@ -121,6 +129,7 @@ class GeminiWrapper {
       maxOutputTokens: maxTokens
     };
 
+    // Enable Google Search grounding when requested.
     if (requestOptions.useGoogleSearch) {
       config.tools = [{ googleSearch: {} }];
     }
@@ -205,6 +214,8 @@ class GeminiWrapper {
     return parts.map((part) => part.text || "").join("").trim();
   }
 
+  // Upload a local file to Gemini Files API and return a URI we can attach to prompts.
+  // The server stores the URI in an in-memory session so multiple prompts can reuse it.
   async uploadFile(filePath, mimeType, displayName) {
     if (this.mock) {
       return {
@@ -223,6 +234,7 @@ class GeminiWrapper {
     });
   }
 
+  // Best-effort cleanup of remote Gemini file objects when a user removes them.
   async deleteFile(name) {
     if (this.mock || !name) {
       return;

@@ -33,6 +33,8 @@ async function optimizationPipeline(input = {}, options = {}) {
   const gemini = options.gemini || new GeminiWrapper();
   const plainHistory = toPlainMessages(conversationHistory);
 
+  // 1) Decide model + whether to enable Google Search grounding.
+  // This uses Flash to keep the “optimizer overhead” cheap.
   let routerResult = {
     shouldUsePro: true,
     reason: "Query routing disabled; using Pro baseline.",
@@ -45,6 +47,8 @@ async function optimizationPipeline(input = {}, options = {}) {
     routerResult = await queryRouter(userQuery, input.complexityThreshold || 0.6, { gemini });
   }
 
+  // 2) Tool selection runs only when we're going to do a Pro call.
+  // (In this prototype, tool selection affects prompt context, not actual tool execution.)
   let toolResult = {
     selectedTools: availableTools.map((tool) => tool.name),
     flashTokensUsed: 0,
@@ -59,6 +63,8 @@ async function optimizationPipeline(input = {}, options = {}) {
     toolResult.tokensAvoided = availableTools.length * PRO_TOOL_TOKEN_ESTIMATE;
   }
 
+  // 3) Context compression summarizes older messages into a short “summary” message,
+  // while keeping the most recent N messages unchanged.
   const contextTokensBefore = await countMessages(gemini, plainHistory);
   let compressionResult = {
     compressedMessages: plainHistory,

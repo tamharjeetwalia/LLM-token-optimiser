@@ -31,6 +31,9 @@ const upload = multer({
   }
 });
 
+// Browsers often report unknown file types as "application/octet-stream".
+// Gemini rejects that MIME type, so we infer a better type from the filename
+// and normalize many "document-ish" formats to a safe baseline ("text/plain").
 const TEXT_PLAIN_MIME_TYPES = new Set([
   "text/plain",
   "text/markdown",
@@ -144,6 +147,8 @@ function selectedToolDescriptions(availableTools = [], selectedToolNames = []) {
     .join("\n");
 }
 
+// Files are uploaded to Gemini and referenced by URI. We keep a per-session registry
+// (in-memory) so a user can upload once and ask multiple questions about the same files.
 function summarizeAttachments(attachments = []) {
   if (!attachments.length) {
     return "";
@@ -184,6 +189,10 @@ function buildProcessingMessages(query, conversationHistory, availableTools, dec
   return messages;
 }
 
+// Upload endpoint:
+// - receives multipart files
+// - uploads them to Gemini Files API
+// - stores the returned URI in the session registry
 app.post(
   "/api/files",
   upload.array("files", 10),
@@ -225,6 +234,7 @@ app.post(
         error: humanUploadError(error, badFile)
       });
     } finally {
+      // Temp upload files are not needed once Gemini has stored them remotely.
       for (const file of files) {
         if (file?.path) {
           fs.promises.unlink(file.path).catch(() => {});
@@ -269,6 +279,8 @@ app.post(
       return res.status(400).json({ error: "query is required" });
     }
 
+    // Optimizations don’t consume full file bytes; we pass only a lightweight summary
+    // so routing decisions can account for "there are files in scope".
     const attachments = getFiles(sessionId, attachmentIds);
     const attachmentSummary = summarizeAttachments(attachments);
     const output = await optimizationPipeline({
@@ -299,6 +311,7 @@ app.post(
       return res.status(400).json({ error: "query is required" });
     }
 
+    // Attachments are included as URI parts so Gemini can read the files.
     const attachments = getFiles(sessionId, attachmentIds);
     const attachmentSummary = summarizeAttachments(attachments);
     const effectiveOptimizationOutput =
@@ -333,6 +346,7 @@ app.post(
       },
       {
         useGoogleSearch: Boolean(decision.useGoogleSearch),
+        // If the model stops due to maxOutputTokens, we ask it to continue (a few times).
         allowContinuation: true
       }
     );

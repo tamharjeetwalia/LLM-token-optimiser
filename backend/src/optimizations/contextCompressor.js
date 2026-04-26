@@ -2,6 +2,10 @@ const { MODELS } = require("../constants");
 const GeminiWrapper = require("../geminiWrapper");
 const { estimateTokensFromMessages, toPlainMessages } = require("../messageUtils");
 
+// Context compression:
+// - If the conversation is short, do nothing.
+// - Otherwise, summarize older messages into a compact "Previous conversation summary:" message
+//   and keep the last N turns verbatim. This reduces prompt size while preserving recent context.
 function formatMessages(messages) {
   return messages.map((message) => `${message.role}: ${message.content}`).join("\n");
 }
