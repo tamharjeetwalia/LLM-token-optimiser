@@ -19,6 +19,32 @@ function MessageIcon({ role }) {
   return <Bot size={18} />;
 }
 
+function formatTokenMeta(message) {
+  if (message.role !== "assistant") {
+    return [];
+  }
+
+  const parts = [];
+
+  if (message.model) {
+    parts.push(message.model);
+  }
+
+  if (typeof message.inputTokens === "number" && message.inputTokens > 0) {
+    parts.push(`input ${message.inputTokens}`);
+  }
+
+  if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
+    parts.push(`output ${message.outputTokens}`);
+  }
+
+  if (typeof message.tokens === "number" && message.tokens > 0) {
+    parts.push(`total ${message.tokens}`);
+  }
+
+  return parts;
+}
+
 function ChatPanel({
   messages,
   isLoading,
@@ -83,12 +109,17 @@ function ChatPanel({
             </div>
             <div className="message-bubble">
               <p>{message.content}</p>
-              <div className="message-meta">
-                <span>{message.model || message.role}</span>
-                {typeof message.tokens === "number" && message.tokens > 0 ? (
-                  <span>{message.tokens} tokens</span>
-                ) : null}
-              </div>
+              {formatTokenMeta(message).length ? (
+                <div className="message-meta">
+                  {formatTokenMeta(message).map((item) => (
+                    <span key={`${message.role}-${index}-${item}`}>{item}</span>
+                  ))}
+                </div>
+              ) : (
+                <div className="message-meta">
+                  <span>{message.model || message.role}</span>
+                </div>
+              )}
             </div>
           </article>
         ))}

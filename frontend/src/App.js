@@ -35,6 +35,8 @@ const initialMessages = [
     role: "assistant",
     content: "Ask a question and I will route it through the optimizer.",
     tokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
     model: "ready"
   }
 ];
@@ -103,6 +105,8 @@ function App() {
       role: "user",
       content: query,
       tokens: null,
+      inputTokens: null,
+      outputTokens: null,
       model: null
     };
 
@@ -135,6 +139,8 @@ function App() {
           role: "assistant",
           content: processResult.response,
           tokens: Number(processResult.inputTokens || 0) + Number(processResult.outputTokens || 0),
+          inputTokens: Number(processResult.inputTokens || 0),
+          outputTokens: Number(processResult.outputTokens || 0),
           model: processResult.model
         }
       ]);
@@ -149,6 +155,8 @@ function App() {
           role: "assistant",
           content: `Request failed: ${message}`,
           tokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
           model: "error"
         }
       ]);
